@@ -21,16 +21,32 @@ class Summarizer:
         self.ai_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def clean_html(self, text: str) -> str:
-        """Absolute brute-force cleanup."""
+        """Absolute brute-force cleanup and Markdown-to-HTML conversion."""
+        # 1. Convert Markdown bold **text** to <b>text</b>
+        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+        
+        # 2. Convert Markdown blockquote '> text' to <blockquote>text</blockquote>
+        # Handle both single line and multiline quotes
+        lines = []
+        for line in text.split('\n'):
+            if line.strip().startswith('>'):
+                content = line.strip().lstrip('>').strip()
+                lines.append(f"<blockquote>{content}</blockquote>")
+            else:
+                lines.append(line)
+        text = '\n'.join(lines)
+
+        # 3. Existing HTML cleanup
         if "body {" in text or "<style" in text:
             text = re.split(r'body\s*\{|<style', text, flags=re.IGNORECASE)[0]
         text = re.sub(r'```[\s\S]*?```', '', text)
         text = re.sub(r'<(style|script|head|body|html|title|div|span|h1|h2|h3)[^>]*>[\s\S]*?</\1>', '', text, flags=re.IGNORECASE)
+        # Preserve only specific safe tags
         text = re.sub(r'<(?!/?(b|i|a|blockquote)\b)[^>]+>', '', text, flags=re.IGNORECASE)
         text = re.sub(r'\{[\s\S]*?\}', '', text)
         return text.strip()
 
-    async def summarize_channel(self, user: db.User):
+    async def summarize_channel(self, user: db.User, interval_minutes: Optional[int] = None):
         """Summarize updates for a specific channel/user."""
         user_id = user.id
         now = datetime.now(timezone.utc)
@@ -55,10 +71,15 @@ class Summarizer:
         except Exception:
             channel_name = "RSS"
 
+        # Special tag for manual triggering
+        if interval_minutes:
+            time_tag = f"补报({interval_minutes//60}h)"
+            emoji = "⚡"
+
         report_title = f"{emoji} <b>{date_str} {channel_name} {time_tag}要闻概览</b>"
 
-        # 2. Dynamic Time Window based on user's interval
-        interval_minutes = user.summary_interval or 720
+        # 2. Dynamic Time Window
+        interval_minutes = interval_minutes or user.summary_interval or 720
         start_time = now - timedelta(minutes=interval_minutes)
         
         # Get ALL entries in the window (no limit here, but prompt will handle density)
@@ -81,20 +102,24 @@ class Summarizer:
 
         request_id = str(uuid.uuid4())[:8]
 
-        system_prompt = f"你是一个新闻编辑。任务:{request_id}。禁止输出CSS或网页代码。"
+        system_prompt = f"你是一个专业的新闻编辑。任务:{request_id}。严禁输出Markdown符号（如**或>），必须使用HTML标签（<b>, <blockquote>）。"
         user_prompt = f"""
-        分析以下 {entry_count} 篇新闻全文，生成总结报告。
+        请根据以下 {entry_count} 篇新闻内容，撰写一份 HTML 格式的总结报告。
 
-        <b>一句话总结</b>
-        <blockquote>[综述核心趋势]</blockquote>
+        要求：
+        1. **严禁** 使用 Markdown 语法。
+        2. 必须且只能使用以下 HTML 标签：
+           - <b>标题</b>：用于分类标题和重点。
+           - <blockquote>内容</blockquote>：用于具体的总结正文，产生气泡效果。
+        3. 结构如下：
+           <b>一句话总结</b>
+           <blockquote>[简明扼要的综述]</blockquote>
 
-        <b>分类总结</b>
-        <b>[分类名]</b>
-        <blockquote>[深度归并总结动态，逻辑严密]</blockquote>
+           <b>分类总结</b>
+           <b>[分类名称]</b>
+           <blockquote>[深度的动态分析]</blockquote>
 
-        **禁令**：禁止输出 style, body, html 标签。标题必须加粗并独立成行。
-        
-        数据：
+        数据内容：
         {content_to_summarize[:110000]}
         """
 
@@ -112,7 +137,8 @@ class Summarizer:
             if "一句话总结" not in ai_content:
                 ai_content = f"<b>一句话总结</b>\n{ai_content}"
 
-            final_report = f"{report_title}\n\n{ai_content}\n\n<i>--- 基于 {entry_count} 篇资讯深度总结 ---</i>"
+            content_len = len(ai_content)
+            final_report = f"{report_title}\n\n{ai_content}\n\n<i>--- 基于 {entry_count} 篇资讯 {content_len} 字深度总结 ---</i>"
             
             # 3. FIFO Pinning Logic (Max 6 pins)
             msg_ids = user.summary_msg_ids or []

@@ -106,6 +106,43 @@ async def cmd_summary(
     )
 
 @command_gatekeeper(only_manager=False)
+async def cmd_force_summary(
+    event: TypeEventCollectionMsgOrCb,
+    *_,
+    lang: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    if not user:
+        return
+
+    # SECURITY CHECK: 
+    sender = await event.get_sender()
+    sender_id = getattr(sender, 'id', None)
+    is_manager = (sender_id in env.MANAGER) or (user.admin in env.MANAGER)
+    
+    if not is_manager:
+        if chat_id > 0:
+            return await event.respond(i18n[lang or 'zh-Hans']['permission_denied'])
+        return
+
+    # Trigger summary
+    from ..summarizer import get_summarizer
+    summarizer = get_summarizer()
+    if not summarizer:
+        return await event.respond("AI Summarizer not configured.")
+
+    status_msg = await event.respond("⏳ 正在手动生成过去 8 小时的要闻总结，请稍候...")
+    
+    try:
+        await summarizer.summarize_channel(user, interval_minutes=480) # 8 hours
+        await status_msg.delete()
+    except Exception as e:
+        await status_msg.edit(f"❌ 总结生成失败: {e}")
+
+@command_gatekeeper(only_manager=False)
 async def callback_summary_toggle(
     event: TypeEventCb,
     *_,

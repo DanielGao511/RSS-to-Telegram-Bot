@@ -265,6 +265,12 @@ async def pre():
         ),
     )
     bot.add_event_handler(
+        command.customization.cmd_force_summary,
+        events.NewMessage(
+            pattern=construct_remote_command_matcher("/force_summary")
+        ),
+    )
+    bot.add_event_handler(
         command.customization.cmd_summary,
         events.NewMessage(
             pattern=construct_remote_command_matcher("/summary")
