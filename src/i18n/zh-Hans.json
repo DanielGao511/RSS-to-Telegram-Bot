@@ -228,6 +228,7 @@
         "cmd_description_export": "导出订阅到 OPML",
         "cmd_description_activate_subs": "启用订阅",
         "cmd_description_deactivate_subs": "停用订阅",
+        "cmd_description_summary": "管理 AI 总结设置",
         "cmd_description_version": "查看 bot 版本",
         "cmd_description_lang": "选择语言",
         "cmd_description_help": "查看帮助",
@@ -235,5 +236,24 @@
         "cmd_description_set_option": "更改 bot 配置 (仅 bot 管理员)",
         "cmd_description_user_info": "查看/修改用户信息 (仅 bot 管理员)",
         "usage_in_channel_or_group_prompt_html": "<b>在频道/群组里的使用方式:</b>\n1. 将 bot 添加到频道/群组里。\n2a. 直接<b>在频道/群组里</b>发送命令。\n2b. 或者，你也可以<b>在和 bot 的私聊里</b>像这样发送命令: <code>/sub @username https://example.com</code> 或 <code>/sub -10010000000000 https://example.com</code>。\n(<code>@username</code> 是频道/群组的用户名，<code>@</code> 是不可缺少的；<code>-10010000000000</code> 是频道/群组的 ID，必须以 <code>-100</code> 开头)"
+    },
+    "l10n_cmd_summary": {
+        "summary_config": "<b>AI 总结设置</b>",
+        "summary_status": "状态",
+        "summary_interval": "频率",
+        "summary_push_at": "起始推送时间",
+        "summary_pin": "自动置顶",
+        "summary_status_enabled": "已开启",
+        "summary_status_disabled": "已关闭",
+        "summary_toggle_button": "切换开关",
+        "summary_toggle_pin_button": "切换置顶开关",
+        "summary_set_interval_button": "设置频率 (小时)…",
+        "summary_set_time_button": "设置起始推送时间…",
+        "summary_set_interval_prompt": "请输入总结频率（1-72 小时）。",
+        "summary_set_time_prompt": "请输入起始推送时间（北京时间，格式 HH:MM，如 08:00）。",
+        "summary_config_updated": "总结设置已更新。",
+        "summary_invalid_interval": "无效的频率，请输入 1 到 72 之间的整数。",
+        "summary_invalid_time": "无效的时间格式，请使用 HH:MM（如 09:00）。",
+        "summary_help_html": "<b>AI 总结功能说明</b>\n开启后，Bot 将根据设定的频率和时间，自动对过去一段时间内的 RSS 更新进行 AI 总结并推送到本频道/会话。"
     }
 }

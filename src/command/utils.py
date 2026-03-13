@@ -307,12 +307,12 @@ def command_gatekeeper(
         async def user_and_chat_permission_check():
             sender_state = chat_state = 0
             if sender_id:
-                sender_in_db, _ = await db.User.get_or_create(id=sender_id, defaults={'lang': 'null'})
+                sender_in_db, _ = await db.User.get_or_create(id=sender_id, defaults={'lang': 'zh-Hans'})
                 sender_state = sender_in_db.state
             if chat_id == sender_id:
                 chat_state = sender_state
             elif chat_id:
-                chat_in_db, _ = await db.User.get_or_create(id=chat_id, defaults={'lang': 'null'})
+                chat_in_db, _ = await db.User.get_or_create(id=chat_id, defaults={'lang': 'zh-Hans'})
                 chat_state = chat_in_db.state
 
             permission_denied_not_manager = only_manager and sender_id not in env.MANAGER
@@ -516,7 +516,8 @@ def command_gatekeeper(
                     # commands in channels
                     event.is_channel
             ):
-                if isinstance(sender, types.Channel):
+                is_summary_cmd = getattr(event, 'raw_text', '') and event.raw_text.startswith('/summary')
+                if isinstance(sender, types.Channel) and not is_summary_cmd:
                     raise events.StopPropagation  # channel messages are none of my business
 
                 if only_in_private_chat or (target_chat_id and not event.is_private):

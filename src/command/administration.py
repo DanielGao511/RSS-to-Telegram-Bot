@@ -207,7 +207,7 @@ async def cmd_user_info_or_callback_set_user(
         user_id = user_entity_like
         user_type = i18n[lang]['user'] if user_id > 0 else None
 
-    user, user_created = await db.User.get_or_create(id=user_id, defaults={'lang': 'null'})
+    user, user_created = await db.User.get_or_create(id=user_id, defaults={'lang': 'zh-Hans'})
     if state is not None:
         user.state = state
         await user.save()
@@ -307,7 +307,7 @@ async def cmd_set_sub_limit(event: TypeEventMsgHint, *_, lang: Optional[str] = N
         return
     user_id, sub_limit = int(args[1]), int(args[2])
     sub_limit = max(sub_limit, -1)
-    user, user_created = await db.User.get_or_create(id=user_id, defaults={'lang': 'null', 'sub_limit': sub_limit})
+    user, user_created = await db.User.get_or_create(id=user_id, defaults={'lang': 'zh-Hans', 'sub_limit': sub_limit})
     if not user_created:
         user.sub_limit = sub_limit
         await user.save()

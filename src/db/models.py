@@ -67,7 +67,15 @@ class User(Model, Base):
     style = fields.SmallIntField(default=0)
     display_media = fields.SmallIntField(default=0)
 
+    # summary options
+    summary_enabled = fields.BooleanField(default=True, description='Enable summary or not?')
+    summary_interval = fields.SmallIntField(default=480, description='Summary interval in minutes')
+    summary_at = fields.CharField(max_length=5, default="06:00", description='Summary start time in Beijing time (HH:MM)')
+    summary_pin = fields.BooleanField(default=True, description='Pin summary message or not?')
+    summary_msg_ids = fields.JSONField(null=True, description='List of active summary message IDs for pinning')
+
     class Meta:
+
         table = 'user'
 
     def __str__(self):
@@ -226,3 +234,21 @@ class Option(Model, Base):
 
     class Meta:
         table = 'option'
+
+
+class ChannelEntry(Model, Base):
+    """
+    ChannelEntry model.
+
+    Stores entries sent to each channel for summarization.
+    """
+    id = fields.IntField(pk=True)
+    user_id = fields.BigIntField(index=True, description='The channel/group/user ID')
+    feed_id = fields.IntField(description='The feed ID')
+    title = fields.TextField(description='Entry title')
+    link = fields.CharField(max_length=4096, description='Entry link')
+    content = fields.TextField(description='Full content for summarization')
+    published_at = fields.DatetimeField(auto_now_add=True, description='Time when recorded')
+
+    class Meta:
+        table = 'channel_entry'

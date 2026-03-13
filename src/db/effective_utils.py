@@ -27,7 +27,7 @@ from random import shuffle
 from . import models
 from .. import log
 
-logger = log.getLogger('RSStT.db')
+logger = log.getLogger("RSStT.db")
 
 
 class __EffectiveOptions:
@@ -36,6 +36,7 @@ class __EffectiveOptions:
 
     Implement a write-through cache that caches all options to reduce db load.
     """
+
     __singleton: Optional["__EffectiveOptions"] = None
     __initialized: bool = False
 
@@ -52,13 +53,15 @@ class __EffectiveOptions:
         self.__options: dict[str, Union[str, int]] = {}
         self.__cached = False
         self.__default_options: dict[str, Union[str, int]] = {
-            "default_interval": 10,
-            "minimal_interval": 5,
+            "default_interval": 5,
+            "minimal_interval": 2,
             "user_sub_limit": -1,
             "channel_or_group_sub_limit": -1,
             "sub_limit_reached_message": "",
         }
-        self.__callbacks: defaultdict[str, list[Callable[[str, Any], NoReturn]]] = defaultdict(list)
+        self.__callbacks: defaultdict[str, list[Callable[[str, Any], NoReturn]]] = (
+            defaultdict(list)
+        )
 
     @property
     def options(self) -> dict[str, Union[str, int]]:
@@ -70,7 +73,7 @@ class __EffectiveOptions:
 
     @property
     def default_interval(self) -> int:
-        return self.get('default_interval')
+        return self.get("default_interval")
 
     @property
     def minimal_interval(self) -> int:
@@ -88,7 +91,9 @@ class __EffectiveOptions:
     def sub_limit_reached_message(self) -> str:
         return self.get("sub_limit_reached_message")
 
-    def cast(self, key: str, value: Any, ignore_type_error: bool = False) -> Union[int, str, None]:
+    def cast(
+        self, key: str, value: Any, ignore_type_error: bool = False
+    ) -> Union[int, str, None]:
         if len(key) > 255:
             raise KeyError("Option key must be 255 characters or less")
 
@@ -123,7 +128,7 @@ class __EffectiveOptions:
         :param value: option value
         """
         value = self.cast(key, value)
-        await models.Option.update_or_create(defaults={'value': str(value)}, key=key)
+        await models.Option.update_or_create(defaults={"value": str(value)}, key=key)
         self.__options[key] = value
         if key not in self.__callbacks:
             return
@@ -139,7 +144,9 @@ class __EffectiveOptions:
 
         for key, value in self.__default_options.items():
             if key in options:  # retrieved from db
-                value = self.cast(key, options[key], ignore_type_error=True)  # cast using the type of default value
+                value = self.cast(
+                    key, options[key], ignore_type_error=True
+                )  # cast using the type of default value
             self.__options[key] = value
             # await models.Option.create(key=key, value=value)  # init option
             if key not in self.__callbacks:
@@ -149,7 +156,9 @@ class __EffectiveOptions:
 
         self.__cached = True
 
-    def add_set_callback(self, key: str, callback: Callable[[str, Any], NoReturn]) -> NoReturn:
+    def add_set_callback(
+        self, key: str, callback: Callable[[str, Any], NoReturn]
+    ) -> NoReturn:
         """
         Register a callback to be called when an option is set.
 
@@ -170,13 +179,18 @@ class EffectiveTasks:
 
     A task dispatcher.
     """
-    __task_buckets: dict[int, "EffectiveTasks"] = {}  # key: interval, value: EffectiveTasks
+
+    __task_buckets: dict[int, "EffectiveTasks"] = (
+        {}
+    )  # key: interval, value: EffectiveTasks
     __all_tasks: dict[int, int] = {}  # key: id, value: interval
 
     def __init__(self, interval: int) -> NoReturn:
         self.interval: Final[int] = interval
         self.__all_feeds: set[int] = set()
-        self.__pending_feeds: list[int] = []  # use a list here to make randomization easier
+        self.__pending_feeds: list[int] = (
+            []
+        )  # use a list here to make randomization easier
         # self.__checked_feeds: set[int] = set()
         self.__run_count: int = 0
 
@@ -197,10 +211,12 @@ class EffectiveTasks:
         if not cls.__task_buckets or flush:
             cls.__all_tasks = {}
             cls.__task_buckets = {}
-            feeds = await models.Feed.filter(state=1).values('id', 'interval')
+            feeds = await models.Feed.filter(state=1).values("id", "interval")
             default_interval = EffectiveOptions.default_interval
             for feed in feeds:
-                cls.update(feed_id=feed['id'], interval=feed['interval'] or default_interval)
+                cls.update(
+                    feed_id=feed["id"], interval=feed["interval"] or default_interval
+                )
 
     def __update(self, feed_id: int):
         self.__all_feeds.add(feed_id)
@@ -279,7 +295,9 @@ class EffectiveTasks:
         # tasks_to_run = set(self.__pending_feeds.pop() for _ in range(pop_count) if self.__pending_feeds)
         tasks_to_run = set(self.__pending_feeds[:pop_count])
         del self.__pending_feeds[:pop_count]
-        self.__run_count = self.__run_count + 1 if self.__run_count + 1 < self.interval else 0
+        self.__run_count = (
+            self.__run_count + 1 if self.__run_count + 1 < self.interval else 0
+        )
         return tasks_to_run
 
     @classmethod

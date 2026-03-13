@@ -17,14 +17,296 @@
 from __future__ import annotations
 from typing import Union, Optional
 
-from telethon import Button
+from telethon import Button, types
 
+import re
 from . import inner, misc
 from .types import *
 from .utils import command_gatekeeper, parse_customization_callback_data, parse_callback_data_with_page, \
     escape_html, parse_command_get_sub_or_user_and_param, get_callback_tail
 from .. import db, env
 from ..i18n import i18n
+from ..summarizer import Summarizer
+
+@command_gatekeeper(only_manager=False)
+async def cmd_summary(
+    event: TypeEventCollectionMsgOrCb,
+    *_,
+    lang: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    **__,
+):
+    chat_id = chat_id or event.chat_id
+    
+    # Ensure full model loading to avoid IncompleteInstanceError
+    user = await db.User.filter(id=chat_id).first()
+    if not user:
+        return
+
+    lang = lang or user.lang or 'zh-Hans'
+
+    # SECURITY CHECK: 
+    # In channels, sender is the channel itself. We rely on user.admin or automatic verification.
+    sender = await event.get_sender()
+    sender_id = getattr(sender, 'id', None)
+    
+    is_manager = (sender_id in env.MANAGER) or (user.admin in env.MANAGER)
+    
+    # Try automatic recognition if it's a channel/group and we don't know the manager yet
+    if not is_manager and (user.state in {50, 51} or chat_id < 0):
+        try:
+            admins = await event.client.get_participants(chat_id, filter=types.ChannelParticipantsAdmins)
+            for admin in admins:
+                if admin.id in env.MANAGER:
+                    user.admin = admin.id
+                    await user.save(update_fields=['admin'])
+                    is_manager = True
+                    break
+        except Exception:
+            pass
+
+    # STRICT PERMISSION CHECK
+    if not is_manager:
+        # If it's a callback (button click), show a popup
+        if isinstance(event, TypeEventCb):
+            return await event.answer(i18n[lang]['permission_denied'], alert=True)
+        # For text commands, only respond in private chat to avoid noise in public channels
+        if chat_id > 0:
+            return await event.respond(i18n[lang]['permission_denied'])
+        return # Silent in channels for unauthorized users
+
+    callback_tail = get_callback_tail(event, chat_id)
+    is_callback = isinstance(event, TypeEventCb)
+
+    status_str = i18n[lang]['summary_status_enabled'] if user.summary_enabled else i18n[lang]['summary_status_disabled']
+    pin_str = i18n[lang]['summary_status_enabled'] if user.summary_pin else i18n[lang]['summary_status_disabled']
+    interval_str = f"{user.summary_interval // 60}h"
+    
+    msg = (
+        f"{i18n[lang]['summary_config']}\n\n"
+        f"{i18n[lang]['summary_status']}: {status_str}\n"
+        f"{i18n[lang]['summary_interval']}: {interval_str}\n"
+        f"{i18n[lang]['summary_push_at']}: {user.summary_at} (GMT+8)\n"
+        f"{i18n[lang]['summary_pin']}: {pin_str}\n\n"
+        f"{i18n[lang]['summary_help_html']}"
+    )
+
+    buttons = [
+        [Button.inline(i18n[lang]['summary_toggle_button'], data=f'summary_toggle{callback_tail}')],
+        [Button.inline(i18n[lang]['summary_toggle_pin_button'], data=f'summary_toggle_pin{callback_tail}')],
+        [Button.inline(i18n[lang]['summary_set_interval_button'], data=f'summary_set_interval{callback_tail}')],
+        [Button.inline(i18n[lang]['summary_set_time_button'], data=f'summary_set_time{callback_tail}')],
+        [Button.inline(i18n[lang]['cancel'], data='cancel')]
+    ]
+
+    await (
+        event.edit(msg, buttons=buttons, parse_mode='html')
+        if is_callback
+        else event.respond(msg, buttons=buttons, parse_mode='html')
+    )
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_toggle(
+    event: TypeEventCb,
+    *_,
+    lang: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    
+    # Permission check for callbacks
+    if user.admin not in env.MANAGER and chat_id not in env.MANAGER:
+        return await event.answer(i18n[lang or 'zh-Hans']['permission_denied'], alert=True)
+
+    user.summary_enabled = not user.summary_enabled
+    await user.save(update_fields=['summary_enabled'])
+    await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_toggle_pin(
+    event: TypeEventCb,
+    *_,
+    lang: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    
+    if user.admin not in env.MANAGER and chat_id not in env.MANAGER:
+        return await event.answer(i18n[lang or 'zh-Hans']['permission_denied'], alert=True)
+
+    user.summary_pin = not user.summary_pin
+    await user.save(update_fields=['summary_pin'])
+    await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_set_interval(
+    event: TypeEventCb,
+    *_,
+    lang: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    if user.admin not in env.MANAGER and chat_id not in env.MANAGER:
+        return await event.answer(i18n[lang or 'zh-Hans']['permission_denied'], alert=True)
+        
+    lang = lang or user.lang or 'zh-Hans'
+    async with event.client.conversation(event.chat_id) as conv:
+        prompt = await conv.send_message(i18n[lang]['summary_set_interval_prompt'])
+        try:
+            msg = await conv.get_response(timeout=60)
+            if msg.text.isdigit():
+                interval = int(msg.text)
+                if 1 <= interval <= 72:
+                    user.summary_interval = interval * 60
+                    await user.save(update_fields=['summary_interval'])
+                    await event.respond(i18n[lang]['summary_config_updated'])
+                else:
+                    await event.respond(i18n[lang]['summary_invalid_interval'])
+            else:
+                await event.respond(i18n[lang]['summary_invalid_interval'])
+        except asyncio.TimeoutError:
+            await event.respond(i18n[lang]['timeout'])
+        finally:
+            await prompt.delete()
+    await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_set_time(
+    event: TypeEventCb,
+    *_,
+    lang: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    if user.admin not in env.MANAGER and chat_id not in env.MANAGER:
+        return await event.answer(i18n[lang or 'zh-Hans']['permission_denied'], alert=True)
+        
+    lang = lang or user.lang or 'zh-Hans'
+    async with event.client.conversation(event.chat_id) as conv:
+        prompt = await conv.send_message(i18n[lang]['summary_set_time_prompt'])
+        try:
+            msg = await conv.get_response(timeout=60)
+            if re.match(r'^\d{2}:\d{2}$', msg.text):
+                user.summary_at = msg.text
+                await user.save(update_fields=['summary_at'])
+                await event.respond(i18n[lang]['summary_config_updated'])
+            else:
+                await event.respond(i18n[lang]['summary_invalid_time'])
+        except asyncio.TimeoutError:
+            await event.respond(i18n[lang]['timeout'])
+        finally:
+            await prompt.delete()
+    await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+@command_gatekeeper(only_manager=False)
+async def callback_summary_toggle(
+        event: TypeEventCb,
+        *_,
+        lang: Optional[str] = None,
+        chat_id: Optional[int] = None,
+        **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    
+    is_manager_chat = (user.id in env.MANAGER) or (user.admin in env.MANAGER)
+    if not is_manager_chat:
+        return await event.answer(i18n[lang]['permission_denied'], alert=True)
+
+    user.summary_enabled = not user.summary_enabled
+    await user.save(update_fields=['summary_enabled'])
+    await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_toggle_pin(
+        event: TypeEventCb,
+        *_,
+        lang: Optional[str] = None,
+        chat_id: Optional[int] = None,
+        **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    
+    is_manager_chat = (user.id in env.MANAGER) or (user.admin in env.MANAGER)
+    if not is_manager_chat:
+        return await event.answer(i18n[lang]['permission_denied'], alert=True)
+
+    user.summary_pin = not user.summary_pin
+    await user.save(update_fields=['summary_pin'])
+    await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_set_interval(
+        event: TypeEventCb,
+        *_,
+        lang: Optional[str] = None,
+        chat_id: Optional[int] = None,
+        **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    
+    is_manager_chat = (user.id in env.MANAGER) or (user.admin in env.MANAGER)
+    if not is_manager_chat:
+        return await event.answer(i18n[lang]['permission_denied'], alert=True)
+
+    callback_tail = get_callback_tail(event, chat_id)
+    
+    async with event.client.conversation(chat_id) as conv:
+        await conv.send_message(i18n[lang]['summary_set_interval_prompt'])
+        response = await conv.get_response()
+        
+        try:
+            hours = int(response.text.strip())
+            if 1 <= hours <= 72:
+                user.summary_interval = hours * 60
+                await user.save(update_fields=['summary_interval'])
+                await event.respond(i18n[lang]['summary_config_updated'])
+            else:
+                await event.respond(i18n[lang]['summary_invalid_interval'])
+        except ValueError:
+            await event.respond(i18n[lang]['summary_invalid_interval'])
+        
+        await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
+
+@command_gatekeeper(only_manager=False)
+async def callback_summary_set_time(
+        event: TypeEventCb,
+        *_,
+        lang: Optional[str] = None,
+        chat_id: Optional[int] = None,
+        **__,
+):
+    chat_id = chat_id or event.chat_id
+    user = await db.User.filter(id=chat_id).first()
+    
+    is_manager_chat = (user.id in env.MANAGER) or (user.admin in env.MANAGER)
+    if not is_manager_chat:
+        return await event.answer(i18n[lang]['permission_denied'], alert=True)
+
+    callback_tail = get_callback_tail(event, chat_id)
+    
+    async with event.client.conversation(chat_id) as conv:
+        await conv.send_message(i18n[lang]['summary_set_time_prompt'])
+        response = await conv.get_response()
+        
+        time_str = response.text.strip()
+        if re.match(r'^([01]\d|2[0-3]):([0-5]\d)$', time_str):
+            user.summary_at = time_str
+            await user.save(update_fields=['summary_at'])
+            await event.respond(i18n[lang]['summary_config_updated'])
+        else:
+            await event.respond(i18n[lang]['summary_invalid_time'])
+            
+        await cmd_summary.__wrapped__(event, lang=lang, chat_id=chat_id)
 
 
 @command_gatekeeper(only_manager=False)

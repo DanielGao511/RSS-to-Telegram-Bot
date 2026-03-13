@@ -282,6 +282,19 @@ class Notifier:
                     await env.bot.send_message(user_id, post, parse_mode='html', silent=not sub.notify)
                     return None
                 await post.send_formatted_post_according_to_sub(sub)
+                
+                # Save entry to ChannelEntry for daily summarization
+                try:
+                    await db.ChannelEntry.create(
+                        user_id=user_id,
+                        feed_id=sub.feed_id,
+                        title=post.title or "",
+                        link=post.link or "",
+                        content=post.html or ""
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to save ChannelEntry for {user_id}: {e}")
+
                 if self._user_blocked_counter[user_id]:  # reset the counter if success
                     del self._user_blocked_counter[user_id]
             except UserBlockedErrors as e:

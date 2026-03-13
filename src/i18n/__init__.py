@@ -39,7 +39,8 @@ NEED_PRE_FILL = {
 }
 
 COMMANDS = ('sub', 'unsub', 'unsub_all', 'list', 'set', 'set_default', 'import', 'export', 'activate_subs',
-            'deactivate_subs', 'version', 'help', 'lang')
+            'deactivate_subs', 'summary', 'lang', 'version', 'help')
+
 MANAGER_COMMANDS = ('test', 'set_option', 'user_info')
 REQUIRED_KEYS = {istr('lang_code'), istr('lang_native_name'), istr('select_lang_prompt')}
 

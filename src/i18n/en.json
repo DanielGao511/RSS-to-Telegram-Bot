@@ -228,6 +228,7 @@
         "cmd_description_export": "Export subscriptions to an OPML file",
         "cmd_description_activate_subs": "Activate subscriptions",
         "cmd_description_deactivate_subs": "Deactivate subscriptions",
+        "cmd_description_summary": "Manage AI summary settings",
         "cmd_description_version": "Check the bot version",
         "cmd_description_lang": "Select a language",
         "cmd_description_help": "View help",

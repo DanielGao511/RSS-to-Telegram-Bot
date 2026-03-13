@@ -68,7 +68,12 @@ async def callback_set_lang(
     chat_id = chat_id or event.chat_id
     lang, _ = parse_callback_data_with_page(event.data)
     welcome_msg = i18n[lang]['welcome_prompt']
-    await db.User.update_or_create(defaults={'lang': lang}, id=chat_id)
+    
+    # Use direct filter.update to avoid model instance saving issues
+    await db.User.filter(id=chat_id).update(lang=lang)
+    # Ensure user exists (in case it's a new chat)
+    await db.User.get_or_create(id=chat_id, defaults={'lang': lang})
+    
     await set_bot_commands(
         scope=types.BotCommandScopePeer(await event.get_input_chat()),
         lang_code='',
