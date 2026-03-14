@@ -102,22 +102,15 @@ class Summarizer:
 
         request_id = str(uuid.uuid4())[:8]
 
-        system_prompt = f"你是一个专业的新闻编辑。任务:{request_id}。严禁输出Markdown符号（如**或>），必须使用HTML标签（<b>, <blockquote>）。"
+        system_prompt = f"你是一个资深新闻编辑。任务:{request_id}。严禁输出Markdown符号（如**或>），必须使用HTML标签（<b>, <blockquote>）。"
         user_prompt = f"""
-        请根据以下 {entry_count} 篇新闻内容，撰写一份 HTML 格式的总结报告。
+        请根据以下 {entry_count} 篇新闻内容，直接撰写分类总结报告。
 
         要求：
-        1. **严禁** 使用 Markdown 语法。
-        2. 必须且只能使用以下 HTML 标签：
-           - <b>标题</b>：用于分类标题和重点。
-           - <blockquote>内容</blockquote>：用于具体的总结正文，产生气泡效果。
-        3. 结构如下：
-           <b>一句话总结</b>
-           <blockquote>[简明扼要的综述]</blockquote>
-
-           <b>分类总结</b>
-           <b>[分类名称]</b>
-           <blockquote>[深度的动态分析]</blockquote>
+        1. **结构优化**：删除“一句话总结”和“分类总结”大标题，直接以分类名称开头。
+        2. **分类格式**：分类标题使用 <b>[分类名]</b>，正文必须包裹在唯一的 <blockquote> 标签内。
+        3. **列表化与排序**：在 <blockquote> 内部，使用 • 开头的无序列表。每个分类下的要点按重要程度从高到低排序。
+        4. **极致精简**：每条格式仅为：核心变动/结果的深度精简。**严禁**输出新闻原始标题，直接描述发生了什么。
 
         数据内容：
         {content_to_summarize[:110000]}
@@ -134,9 +127,6 @@ class Summarizer:
             )
             ai_content = self.clean_html(completion.choices[0].message.content)
             
-            if "一句话总结" not in ai_content:
-                ai_content = f"<b>一句话总结</b>\n{ai_content}"
-
             content_len = len(ai_content)
             final_report = f"{report_title}\n\n{ai_content}\n\n<i>--- 基于 {entry_count} 篇资讯 {content_len} 字深度总结 ---</i>"
             
